@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optimise LLM Inference Throughput from First Principles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fbf9f4;
+    --text: #1a1a1a;
+    --text-muted: #5a5a5a;
+    --accent: #8a2c2c;
+    --rule: #d8d3c7;
+    --code-bg: #f0ece2;
+    --side-note: #6a6359;
+    --link: #8a2c2c;
+    --link-hover: #b03838;
+    --max-width: 1180px;
+    --content-width: 720px;
+    --side-width: 240px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.55;
+    font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+  }
+
+  /* ────────── HEADER ────────── */
+  .site-header {
+    border-bottom: 1px solid var(--rule);
+    padding: 22px 0 18px;
+    margin-bottom: 36px;
+  }
+  .site-header-inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 32px;
+    display: flex;
+    align-items: baseline;
+    gap: 28px;
+    font-size: 17px;
+  }
+  .site-header a {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .site-header a:hover {
+    color: var(--accent);
+  }
+  .site-header .home {
+    font-size: 20px;
+  }
+  .site-header .nav-spacer {
+    flex: 1;
+  }
+  .site-header .nav-meta {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* ────────── LAYOUT ────────── */
+  .page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 32px 120px;
+    position: relative;
+  }
+
+  .content {
+    max-width: var(--content-width);
+    margin: 0;
+  }
+
+  /* ────────── TITLE BLOCK ────────── */
+  h1.title {
+    font-size: 38px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 8px 0 14px;
+  }
+
+  .byline {
+    color: var(--text-muted);
+    font-size: 15px;
+    margin-bottom: 6px;
+    font-style: italic;
+  }
+  .byline .author {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .meta-row {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 40px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* ────────── TYPOGRAPHY ────────── */
+  h2 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin: 56px 0 18px;
+    line-height: 1.2;
+  }
+  h3 {
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 38px 0 14px;
+    line-height: 1.25;
+  }
+  h4 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 28px 0 10px;
+    color: var(--text);
+  }
+
+  p {
+    margin: 0 0 16px;
+  }
+
+  strong {
+    font-weight: 700;
+  }
+
+  em {
+    font-style: italic;
+  }
+
+  a {
+    color: var(--link);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(138, 44, 44, 0.3);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  a:hover {
+    color: var(--link-hover);
+    border-bottom-color: var(--link-hover);
+  }
+
+  /* ────────── CODE ────────── */
+  code {
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.86em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #4a2222;
+  }
+  pre {
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 18px 0;
+    border-radius: 0 3px 3px 0;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+
+  /* ────────── FIGURES ────────── */
+  figure {
+    margin: 26px 0;
+    text-align: center;
+  }
+  figure img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+  }
+  figcaption {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 10px;
+    line-height: 1.4;
+  }
+  figure.wide {
+    margin-left: -40px;
+    margin-right: -40px;
+  }
+
+  /* ────────── SIDENOTES (Tufte-style) ────────── */
+  .sidenote {
+    display: inline-block;
+    float: right;
+    clear: right;
+    margin-right: calc(-1 * (var(--side-width) + 24px));
+    width: var(--side-width);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--side-note);
+    font-style: italic;
+    margin-top: 4px;
+    margin-bottom: 14px;
+    text-align: left;
+    padding-left: 4px;
+    border-left: 2px solid var(--rule);
+    padding-left: 10px;
+  }
+  .sidenote code {
+    font-style: normal;
+    font-size: 12px;
+  }
+  .sidenote-number {
+    counter-increment: sidenote-counter;
+    font-size: 12px;
+    vertical-align: super;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .sidenote-number::after {
+    content: counter(sidenote-counter);
+  }
+  .sidenote::before {
+    counter-increment: sidenote-counter-display;
+    content: counter(sidenote-counter-display) "  ";
+    color: var(--accent);
+    font-style: normal;
+    font-weight: 600;
+  }
+  body {
+    counter-reset: sidenote-counter sidenote-counter-display;
+  }
+
+  /* ────────── BLOCKQUOTE / CALLOUT ────────── */
+  blockquote {
+    border-left: 3px solid var(--rule);
+    margin: 22px 0;
+    padding: 4px 0 4px 18px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .callout {
+    background: rgba(138, 44, 44, 0.05);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    margin: 24px 0;
+    font-size: 15px;
+    font-style: italic;
+    color: #3a2222;
+  }
+
+  /* ────────── LISTS ────────── */
+  ul, ol {
+    margin: 12px 0 16px;
+    padding-left: 24px;
+  }
+  li {
+    margin-bottom: 6px;
+  }
+  ul li::marker {
+    color: var(--text-muted);
+  }
+
+  /* ────────── TABLES ────────── */
+  table {
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 15px;
+    width: 100%;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  th {
+    font-weight: 600;
+    border-bottom: 2px solid #999;
+  }
+  td code {
+    font-size: 13px;
+  }
+
+  /* ────────── MATH / ASCII BLOCK ────────── */
+  .ascii-block {
+    background: transparent;
+    border-left: 3px solid var(--rule);
+    padding: 10px 18px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text);
+    margin: 22px 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* ────────── FOOTER ────────── */
+  .article-footer {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--rule);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  /* ────────── RESPONSIVE ────────── */
+  @media (max-width: 1100px) {
+    .sidenote {
+      float: none;
+      display: block;
+      margin: 14px 0;
+      width: 100%;
+      margin-right: 0;
+      background: rgba(0,0,0,0.025);
+      padding: 10px 14px;
+      border-left: 2px solid var(--rule);
+    }
+    figure.wide {
+      margin-left: 0;
+      margin-right: 0;
+    }
+  }
+  @media (max-width: 720px) {
+    body { font-size: 17px; }
+    h1.title { font-size: 30px; }
+    h2 { font-size: 22px; }
+    h3 { font-size: 18px; }
+    .page, .site-header-inner { padding: 0 20px; }
+    .site-header-inner { gap: 18px; flex-wrap: wrap; }
+    pre { font-size: 13px; padding: 12px 14px; }
+    .ascii-block { font-size: 12px; padding: 10px 12px; }
+  }
+
+  /* small section dividers */
+  .rule {
+    height: 1px;
+    background: var(--rule);
+    margin: 56px 0;
+    border: none;
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a href="../about.html">About</a>
+    <a href="../index.html">Writing</a>
+    <span class="nav-spacer"></span>
+    <!-- <span class="nav-meta">notes on ML systems</span> -->
+  </div>
+</header>
+
+<main class="page">
+<article class="content">
+
+  <h1 class="title">Optimise LLM Inference Throughput from First Principles (Part I)</h1>
+
+  <div class="byline"><span class="author">May 2026</span> · ML Systems</div>
+  <div class="meta-row">
+    <!-- <span>May 2026</span> -->
+  </div>
+
+  <p>This article explores why the most intuitive lever for throughput, <strong>batching concurrent prompts</strong>, is so effective at improving inference throughput. By dissecting the underlying computations of a transformer during inferenc on a single GPU setup, this article aims to establish a rigorous mental model of the LLM inference workload. This serves as a foundational step toward building a full inference cost model, allowing us to predict token throughput for a given model and hardware before deployment, which we will conclude at the end of this blog series.</p>
+
+  <!-- <p>The plan is concrete: pick a single model (Qwen3-32B), do the napkin math by hand for one transformer layer, then use the result to derive batching limits a working scheduler has to respect.</p> -->
+
+  <h2>1. Lifetime of a prompt</h2>
+
+  <p>In inference, a prompt goes through two stages: <strong>prefill</strong> and <strong>decode</strong>. Prefill is a <strong>single forward pass</strong> that processes all the prompt's tokens in parallel and produces the first output token. Decode then generates each subsequent output token one by one — one forward pass per token.</p>
+
+  <p>In the diagram below, all the orange tokens are processed in a single prefill forward pass to produce the first blue token ("jumps"). The K and V vectors are cached as they're computed,<span class="sidenote-number"></span><span class="sidenote">For the motivation behind KV caching, see <a href="https://huggingface.co/blog/not-lain/kv-caching">this primer</a>. The short version: attention re-reads every previous K and V at every step, so caching them turns an O(N²) recompute into an O(N) read.</span> so every subsequent forward pass only has to operate on a single token — the latest output token.</p>
+
+  <figure>
+    <img src="../assets/img/page1_img1.png" alt="Prefill and decode stages of a transformer inference, showing prompt tokens processed in parallel during prefill and one token at a time during decode">
+    <figcaption>Illustration from https://huggingface.co/blog/tngtech/llm-performance-prefill-decode-concurrent-requests.</figcaption>
+  </figure>
+
+  <p>These two stages have contrasting performance characteristics: prefill is <strong>compute-bound</strong>, decode is <strong>memory-bound</strong>. To see why, let's look at what actually happens inside a transformer layer.</p>
+
+  <h3>What one forward pass does</h3>
+
+  <p>The computation graph of a transformer LM starts with token embedding, then a stack of transformer layers (each contains one attention and one MLP layer), and finishes with an unembedding projection into the final probablity distribution over the vocabulary called logits.</p>
+
+  <figure>
+    <img src="../assets/img/page2_img1.png" alt="Transformer compute graph: token embedding, residual block with attention heads and MLP, unembedding to logits">
+        <figcaption>Illustration from https://transformer-circuits.pub/2021/framework/index.html.</figcaption>
+
+  </figure>
+
+  <p>The key architectural feature for our purposes is the <strong>residual stream</strong> running across every layer. It has the same dimension everywhere — starting as the input embedding (at <code>x₀</code> in the diagram) and ending as the input to the unembedding layer. Attention and MLP layers are best understood as transformations <em>on</em> the stream: each one reads the stream, computes something, and adds its result back. You can think of the residual stream as embedding vectors of tokens being updated over time.<span class="sidenote-number"></span><span class="sidenote">3Blue1Brown has a nice visualisation of this on <a href="https://www.youtube.com/watch?v=wjZofJX0v4M">YouTube</a>: each token's vector is gradually rewritten by successive layers as more context flows in.</span></p>
+
+  <figure>
+    <img src="../assets/img/page2_img2.png" alt="Residual stream visualization: attention output added back to the residual stream as new embedding vectors for each token">
+    <!-- <figcaption>Colored bars represent embedding vectors</figcaption> -->
+  </figure>
+
+  <p>The final logits are produced by applying the unembedding <strong>only to the residual stream of the last token</strong>.</p>
+
+  <figure>
+    <img src="../assets/img/page3_img1.png" alt="Unembedding diagram: residual stream of the last token projected to vocabulary logits">
+    <!-- <figcaption>A scheduler with token budget 10 and three concurrent requests. The token budget empties as requests transition from prefill to decode — utilisation falls with it.</figcaption> -->
+  </figure>
+
+  <p>Combined with the KV cache, this means <strong>decode only has to push <em>one</em> token</strong> through the whole forward pass, while prefill processes all input tokens at once. That alone is the first heuristic for why prefill is compute-bound while decode is memory-bound.</p>
+  <p>Let's actually compare the number of arithmetic operations in prefill vs decode to ground this heuristic.</p>
+
+  <h3>Prefill is compute-bound, decode is memory-bound</h3>
+
+  <p>This section will calculate the arithmetic intensity (number of arith operations / number of memory transfer in bytes) of prefill and decode and draw a roofline model on A100 GPU. Let's start by counting the floating-point operations FLOPs <span class="sidenote-number"></span><span class="sidenote">not to be confused with FLOPS, which is FLOPs <em>per second</em>.</span> (the main arithmetic operations in transformer) in one transformer layer for a concrete model: <strong>Qwen3-32B</strong>. Here is the configuration of the model:</p>
+
+<pre><code>d_model    / hidden_size  = 5120
+d_ff       / intermediate = 25600
+n_layers                  = 64
+n_heads                   = 64
+n_kv_heads                = 8       (Grouped Query Attention)
+d_head                    = 128
+d_q_total  = n_heads    × d_head = 8192
+d_kv_total = n_kv_heads × d_head = 1024
+dtype      = bf16 = 2 bytes/param</code></pre>
+
+  <figure>
+    <img src="../assets/img/page4_img1.png" alt="Attention variants: MQA, GQA, MHA, MLA showing different sharing patterns of key/value heads">
+    <figcaption>Illustration from https://verticalserve.medium.com/group-query-attention-58283b337c65</figcaption>
+
+  </figure>
+
+  <p>Qwen3 uses GQA, which reduces the number of KV heads by assigning each KV head to a group of query heads. For Qwen3-32B, each KV head is shared across <code>64 / 8 = 8</code> query heads.</p>
+
+  <p>At 32B parameters × 2 bytes, the model is <strong>~64 GB</strong>. Spread over 64 layers, <strong>one layer of weights is ~1 GB</strong> — keep that number, it's the denominator of every arithmetic-intensity calculation below.</p>
+
+  <h4>The one rule everything reduces to</h4>
+
+  <p>A matmul between two matrices <code>[M, K] @ [K, N]</code> produces output matrix of size <code>[M, N]</code> and costs <code>2 × K × M × N</code> FLOPs. This is because each of the <code>M × N</code> output entries is an inner product over K (K multiplies and K-1 adds), which combines into the <code>2 × K</code> term. Every estimate below is an instance of this rule.</p>
+
+  <figure>
+    <img src="../assets/img/page4_img2.png" alt="Matrix multiplication FLOP visualization: each output entry requires K multiplies and K-1 adds">
+  </figure>
+
+  <h3>Attention FLOPs</h3>
+
+  <p>The attention layer breaks down into two main matmul groups: <strong>projections</strong> (Q, K, V, O) and <strong>attention score computation</strong>. The residual stream <code>x</code> is projected into Q, K, V via matmuls, attention scores are computed per head, the per-head outputs are concatenated, and the result is projected back to the residual stream via O.</p>
+
+  <figure>
+    <img src="../assets/img/page5_img1.png" style="width: 50%;" alt="Multi-head attention layer: residual stream X projected to per-head Q, K, V; attention computed per head; concatenated and projected by W_O">
+      <figcaption>Illustration from https://arxiv.org/pdf/2408.06357</figcaption>
+
+  </figure>
+
+  <p>The diagram below is a handy reference for the matrix dimensions involved in the following FLOPs calculation.</p>
+
+  <figure>
+    <img src="../assets/img/page6_img1.png" alt="Attention dimensions: input X of shape (n, d) projected by W_Q, W_K, W_V to Q, K, V; QK^T softmax times V produces output Z">
+    <figcaption>Illustration from https://sebastianraschka.com/blog/2023/self-attention-from-scratch.html</figcaption>
+  </figure>
+
+  <h4>Attention projections (Q, K, V, O)</h4>
+
+  <p>Each projection is a matmul of dimension <code>[N<span class="sidenote-number"></span><span class="sidenote">N is the number of tokens. A prompt of 4096 token is used as input for this example.</span>, d_model] @ [d_model, d_head]</code>, costing <code>2 × d_model × N × d_head = 2 × 5120 × N × 128</code> FLOPs <em>per head</em>. Total FLOPs scale with the number of heads — and under GQA, the number of Q heads and KV heads differs, so each has to be counted separately:</p>
+
+<pre><code>Q : 2 × 5120 × N × 128 × 64   (64 query heads)
+K : 2 × 5120 × N × 128 ×  8   (8  kv heads)
+V : 2 × 5120 × N × 128 ×  8   (8  kv heads)
+O : 2 × 5120 × N × 128 × 64   (output projection)</code></pre>
+
+  <p>For <strong>prefill</strong> (N = 4096): 343.6 B + 43.0 B + 43.0 B + 343.6 B ≈ <strong>0.77 T FLOPs</strong>.<br>
+  For <strong>decode</strong> (N = 1) ≈ <strong>0.19 B FLOPs</strong>.</p>
+
+  <h4>Attention scores</h4>
+
+  <p><strong>Prefill:</strong> N queries attend over N keys and values. Per query head:</p>
+
+<pre><code>Q @ K^T     : [N, d_head] @ [d_head, N] → 2 × N² × d_head
+softmax @ V : [N, N] @ [N, d_head] → 2 × N² × d_head
+Total       : 4 × N² × d_head</code></pre>
+
+  <p>Across 64 query heads, total FLOPs = <code>4 × N² × 128 × 64</code><span class="sidenote-number"></span><span class="sidenote">Notice FLOPs of attention score grows quadratically with number of tokens in prefill.</span>. For N = 4096:</p>
+
+<pre><code>4 × 4096² × 128 × 64 ≈ 0.55 T FLOPs</code></pre>
+
+  <!-- <p>A causal mask roughly halves this in principle, but most accounting keeps the full N² since the saving depends on how the kernel is tiled.<span class="sidenote-number"></span><span class="sidenote">FlashAttention's tiling makes the mask savings real: it skips entire upper-triangular tiles. Naive softmax-attention pays for the full N² anyway because masked entries still get loaded.</span></p> -->
+
+  <p><strong>Decode:</strong> One new query attends over <code>N_cache</code> cached keys and values. Per query head:</p>
+
+<pre><code>Q @ K^T     : [1, d_head] @ [d_head, N_cache] → 2 × N_cache × d_head
+softmax @ V : [1, N_cache] @ [N_cache, d_head] → 2 × N_cache × d_head
+Total       : 4 × N_cache × d_head</code></pre>
+
+  <p>Across 64 query heads, total FLOPs = <code>4 × N_cache × 128 × 64</code>. For N_cache = 4096:</p>
+
+<pre><code>4 × 4096 × 128 × 64 ≈ 0.13 B FLOPs</code></pre>
+
+  <h3>MLP FLOPs</h3>
+
+  <figure>
+    <img src="../assets/img/page7_img1.png" alt="MLP SwiGLU block: linear gate and linear up multiplied through Swish, projected back by linear down">
+    <figcaption>Illustration from https://machinelearningmastery.com/linear-layers-and-activation-functions-in-transformer-models/</figcaption>
+  </figure>
+
+  <p>Qwen3's MLP has <strong>three</strong> dense layers — gate, up, and down — wired up as SwiGLU. The output is:</p>
+
+<pre><code>Gate: [N, d_model] @ [d_model, d_ff]    → 2 × N × d_model × d_ff
+Up  : [N, d_model] @ [d_model, d_ff]    → 2 × N × d_model × d_ff
+Down: [N, d_ff   ] @ [d_ff,    d_model] → 2 × N × d_ff    × d_model
+Total                                    : 6 × N × d_model × d_ff</code></pre>
+
+  <p>Prefill (N = 4096) ≈ <strong>3.2 T FLOPs</strong>; Decode (N = 1) ≈ <strong>0.79 B FLOPs</strong>. The SiLU (Swish) and the elementwise <code>gate × up</code> product are <code>O(N × d_ff)</code> — negligible compared to the matmuls, so they're left out.</p>
+
+  <h3>Putting the per-stage numbers together</h3>
+
+  <p><strong>Decode</strong>, 1 token, N_cache = 4096, one layer:</p>
+
+<div class="ascii-block">Projections (Q, K, V, O)            ~0.19 B
+Attention scores + softmax @ V      ~0.13 B  
+MLP (gate + up + down)              ~0.79 B
+────
+Total                               ~1.1 B   FLOPs
+HBM transfer                        ~1 GB    (weight of one layer)
+Arithmetic intensity                ~1.1 GFLOP / 1 GB ≈ <strong>~1 FLOP/byte</strong></div>
+
+  <p><strong>Prefill</strong>, S = 4096 tokens, one layer:</p>
+
+<div class="ascii-block">Projections                         ~0.77 T
+Attention QK^T + softmax @ V        ~0.55 T 
+MLP                                 ~3.2  T
+────
+Total                               ~4.5  T  FLOPs
+HBM transfer                        ~1 GB    (loaded once, reused across all 4096 tokens)
+Arithmetic intensity                ~4.5 TFLOP / 1 GB ≈ <strong>~4500 FLOPs/byte</strong></div>
+
+  <p class="callout">A note on the memory-transfer numbers above: they don't include KV cache or activation transfers, since for this example they're negligible against the weights. (The next section justifies this.)</p>
+
+  <p>An A100 has ~2 TB/s HBM bandwidth and ~312 TFLOP/s for bf16 compute. The <strong>roofline crossover</strong> — the point at which a kernel flips from memory-bound to compute-bound — sits at <code>312 / 2 = 156 FLOPs/byte</code>.</p>
+
+  <p>Decode has arithmetic intensity of ~1, making it massively memory-bound, compute cores almost idle, the whole step bottlenecked on streaming 1 GB of weights from HBM. On the other hand, prefill lands at ~4500, well above 156, making it solidly compute-bound.</p>
+  <figure class="wide" style="margin-top: 32px; margin-bottom: 8px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 680 278"
+         role="img" aria-label="Roofline model: prefill vs decode on A100, Qwen3-32B"
+         style="font-family: 'JetBrains Mono', ui-monospace, monospace; display: block;">
+ 
+      <!--
+        Coordinate system (log-log, same scale for both diagrams)
+        AI   range : 0.5–10000 FLOP/byte  (log10: −0.301 → 4,  span 4.301)
+        Perf range : 0.1–1000  TFLOP/s    (log10:  −1    → 3,  span 4   )
+        xp(AI,  pX) = pX + (log10(AI)+0.301)/4.301 × 237
+        yp(Perf)    = 222 − (log10(Perf)+1)/4 × 200
+        Key y: yp(1)=172  yp(10)=122  yp(100)=72  yp(312)=47  yp(2.2)=155
+        Left  diagram: x=[55,292]  ridge x=192, prefill dot x=273
+        Right diagram: x=[385,622] ridge x=522, decode  dot x=404
+      -->
+ 
+      <!-- ═══ LEFT: Prefill ═══ -->
+ 
+      <text x="172" y="13" text-anchor="middle"
+            font-size="13" font-weight="600" fill="#1a1a1a">Prefill</text>
+      <text x="57" y="20" text-anchor="start" font-size="10" fill="#5a5a5a">TFLOP/s</text>
+ 
+      <!-- axes -->
+      <line x1="55" y1="22"  x2="55"  y2="222" stroke="#d8d3c7" stroke-width="1"/>
+      <line x1="55" y1="222" x2="292" y2="222" stroke="#d8d3c7" stroke-width="1"/>
+ 
+      <!-- grid -->
+      <line x1="55" y1="172" x2="292" y2="172" stroke="#d8d3c7" stroke-width="0.6"/>
+      <line x1="55" y1="122" x2="292" y2="122" stroke="#d8d3c7" stroke-width="0.6"/>
+      <line x1="55" y1="72"  x2="292" y2="72"  stroke="#d8d3c7" stroke-width="0.6"/>
+ 
+      <!-- y ticks -->
+      <line x1="51" y1="172" x2="55" y2="172" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="49" y="176" text-anchor="end" font-size="10" fill="#5a5a5a">1</text>
+      <line x1="51" y1="122" x2="55" y2="122" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="49" y="126" text-anchor="end" font-size="10" fill="#5a5a5a">10</text>
+      <line x1="51" y1="72"  x2="55" y2="72"  stroke="#d8d3c7" stroke-width="1"/>
+      <text x="49" y="76"  text-anchor="end" font-size="10" fill="#5a5a5a">100</text>
+      <line x1="51" y1="47"  x2="55" y2="47"  stroke="#d8d3c7" stroke-width="1"/>
+      <text x="49" y="51"  text-anchor="end" font-size="10" fill="#5a5a5a">312</text>
+ 
+      <!-- x ticks: 1, 10, [156 ridge], 1K, 10K -->
+      <line x1="72"  y1="222" x2="72"  y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="72"  y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">1</text>
+      <line x1="127" y1="222" x2="127" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="127" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">10</text>
+      <line x1="237" y1="222" x2="237" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="237" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">1K</text>
+      <line x1="292" y1="222" x2="292" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="292" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">10K</text>
+ 
+      <!-- ridge: dashed guide + accent tick -->
+      <line x1="192" y1="47" x2="192" y2="222" stroke="#d8d3c7" stroke-width="0.8" stroke-dasharray="4 3"/>
+      <line x1="192" y1="222" x2="192" y2="231" stroke="#8a2c2c" stroke-width="2.5"/>
+      <text x="192" y="237" text-anchor="middle" font-size="10" fill="#8a2c2c">156</text>
+ 
+      <!-- roofline: bandwidth slope + compute ceiling (accent colour) -->
+      <line x1="55"  y1="172" x2="192" y2="47" stroke="#8a2c2c" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="192" y1="47"  x2="292" y2="47" stroke="#8a2c2c" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="192" cy="47" r="4" fill="#8a2c2c"/>
+ 
+      <!-- region labels -->
+      <text x="108" y="198" text-anchor="middle" font-size="10" fill="#6a6359">memory-bound</text>
+      <text x="247" y="108" text-anchor="middle" font-size="10" fill="#6a6359">compute-bound</text>
+ 
+      <!-- PREFILL operating point: on the compute ceiling -->
+      <circle cx="273" cy="47" r="8" fill="#185FA5"/>
+      <text x="287" y="37" text-anchor="end" font-size="12" font-weight="600" fill="#185FA5">prefill</text>
+      <!-- <text x="287" y="61" text-anchor="end" font-size="10" fill="#5a5a5a">4.5T FLOPs</text>
+      <text x="287" y="74" text-anchor="end" font-size="10" fill="#5a5a5a">AI ≈ 4 500 F/B</text> -->
+ 
+      <!-- x-axis label -->
+      <text x="172" y="252" text-anchor="middle" font-size="10" fill="#5a5a5a">Arithmetic intensity (FLOP/byte)</text>
+ 
+ 
+      <!-- ═══ RIGHT: Decode ═══ -->
+ 
+      <text x="502" y="13" text-anchor="middle"
+            font-size="13" font-weight="600" fill="#1a1a1a">Decode</text>
+      <text x="387" y="20" text-anchor="start" font-size="10" fill="#5a5a5a">TFLOP/s</text>
+ 
+      <!-- axes -->
+      <line x1="385" y1="22"  x2="385" y2="222" stroke="#d8d3c7" stroke-width="1"/>
+      <line x1="385" y1="222" x2="622" y2="222" stroke="#d8d3c7" stroke-width="1"/>
+ 
+      <!-- grid -->
+      <line x1="385" y1="172" x2="622" y2="172" stroke="#d8d3c7" stroke-width="0.6"/>
+      <line x1="385" y1="122" x2="622" y2="122" stroke="#d8d3c7" stroke-width="0.6"/>
+      <line x1="385" y1="72"  x2="622" y2="72"  stroke="#d8d3c7" stroke-width="0.6"/>
+ 
+      <!-- y ticks -->
+      <line x1="381" y1="172" x2="385" y2="172" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="379" y="176" text-anchor="end" font-size="10" fill="#5a5a5a">1</text>
+      <line x1="381" y1="122" x2="385" y2="122" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="379" y="126" text-anchor="end" font-size="10" fill="#5a5a5a">10</text>
+      <line x1="381" y1="72"  x2="385" y2="72"  stroke="#d8d3c7" stroke-width="1"/>
+      <text x="379" y="76"  text-anchor="end" font-size="10" fill="#5a5a5a">100</text>
+      <line x1="381" y1="47"  x2="385" y2="47"  stroke="#d8d3c7" stroke-width="1"/>
+      <text x="379" y="51"  text-anchor="end" font-size="10" fill="#5a5a5a">312</text>
+ 
+      <!-- x ticks -->
+      <line x1="402" y1="222" x2="402" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="402" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">1</text>
+      <line x1="457" y1="222" x2="457" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="457" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">10</text>
+      <line x1="567" y1="222" x2="567" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="567" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">1K</text>
+      <line x1="622" y1="222" x2="622" y2="226" stroke="#d8d3c7" stroke-width="1"/>
+      <text x="622" y="236" text-anchor="middle" font-size="10" fill="#5a5a5a">10K</text>
+ 
+      <!-- ridge -->
+      <line x1="522" y1="47" x2="522" y2="222" stroke="#d8d3c7" stroke-width="0.8" stroke-dasharray="4 3"/>
+      <line x1="522" y1="222" x2="522" y2="231" stroke="#8a2c2c" stroke-width="2.5"/>
+      <text x="522" y="237" text-anchor="middle" font-size="10" fill="#8a2c2c">156</text>
+ 
+      <!-- roofline -->
+      <line x1="385" y1="172" x2="522" y2="47"  stroke="#8a2c2c" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="522" y1="47"  x2="622" y2="47"  stroke="#8a2c2c" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="522" cy="47" r="4" fill="#8a2c2c"/>
+ 
+      <!-- region labels -->
+      <text x="445" y="210" text-anchor="middle" font-size="10" fill="#6a6359">memory-bound</text>
+      <text x="578" y="108" text-anchor="middle" font-size="10" fill="#6a6359">compute-bound</text>
+ 
+      <!-- DECODE operating point: on the bandwidth slope -->
+      <circle cx="404" cy="155" r="8" fill="#b07020"/>
+      <text x="416" y="158" text-anchor="start" font-size="12" font-weight="600" fill="#b07020">decode</text>
+      <!-- <text x="416" y="120" text-anchor="start" font-size="10" fill="#5a5a5a">1.1B FLOPs</text>
+      <text x="416" y="107" text-anchor="start" font-size="10" fill="#5a5a5a">AI ≈ 1 F/B</text> -->
+ 
+      <!-- x-axis label -->
+      <text x="502" y="252" text-anchor="middle" font-size="10" fill="#5a5a5a">Arithmetic intensity (FLOP/byte)</text>
+ 
+    </svg>
+  </figure>
+  <p>So how can we increase the arithmetic intensity of decode to better utilise GPU compute? The next section will explain the solution.</p>
+
+  <h3>The MLP dominates either way</h3>
+  <p>As a final note, whether the bottleneck is memory (decode) or compute (prefill), the dominant cost on that axis is the MLP. Attention stays comparatively cheap until the context grows long — the quadratic N² attention term in prefill only overtakes the linear projection term around N ≈ 6K for these dimensions, well past the 4K we're using here.</p>
+
+  <table>
+    <thead>
+      <tr><th></th><th>Projections</th><th>Attention</th><th>MLP</th><th>MLP share</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Decode (N = 1)</td><td><code>0.19 B</code></td><td><code>~0.13 B</code></td><td><code>0.79 B</code></td><td><strong>~71%</strong></td></tr>
+      <tr><td>Prefill (N = 4096)</td><td><code>0.77 T</code></td><td><code>0.55 T</code></td><td><code>3.2 T</code></td><td><strong>~71%</strong></td></tr>
+    </tbody>
+  </table>
+
+
+  <!-- <h3>The intuition</h3>
+
+<div class="ascii-block">                       Decode (1 token)        Prefill (4096 tokens)
+                       ────────────────        ─────────────────────
+Weights loaded         1 GB                    1 GB        (same!)
+FLOPs performed        ~1.1 billion            ~4.5 trillion
+Arithmetic intensity   ~1 FLOP/byte            ~4500 FLOPs/byte
+Bottleneck             Memory bandwidth        Compute
+GPU utilisation        &lt; 1 %                   ~saturated</div> -->
+
+  <!-- <p>Prefill amortises the cost of loading them across N tokens; decode pays the full 1 GB load to produce a single token.</p>
+
+  <p>Naturally, It's also why batching decode helps so much. Batch 256 decode tokens together and the MLP matmul becomes <code>[256, d_model] @ [d_model, d_ff]</code>: same weight bytes loaded, 256× the FLOPs, allowing arithmetic intensity to move toward the roofline.</p> -->
+
+  <hr class="rule">
+
+  <h2>2. Batching behaviour of the inference system</h2>
+
+  <p>We have established that decode stage of inference drastically underutilised GPU compute. Naturally, the foremost solution is to add more concurrent decode tokens, which comes from adding more concurrent input prompts. How does running multiple concurrent input prompts actually work?</p>
+
+  <p>Suppose the GPU has capacity to process at most 10 tokens in parallel at one time. In step 0 of the figure below, three prompts are prefilled and the token budget is fully occupied (GPU utilisation at 100%). By step 3, all three have transitioned to decode and the GPU utilisation falls to 30%. Imagine starting with 10 concurrent prompts, GPU utilisation will always be 100% and throughput (tokens per second) remains high<span class="sidenote-number"></span><span class="sidenote">Average Time to First Token might take longer as there are more prefills.</span>.</p>
+
+  <figure>
+    <img src="../assets/img/page10_img1.png" alt="Scheduler diagram: three prompts R1, R2, R3 with a token budget of 10. Step 0 has full budget filled by prefill; subsequent steps trail off as requests enter decode and the budget empties.">
+    <figcaption>Illustration from https://vllm.ai/blog/2025-01-27-v1-alpha-release.</figcaption>
+  </figure>
+
+  <!-- <p>This is the first principle of throughput optimisation: <strong>increase the number of concurrent prompts to keep the token budget filled and the compute busy.</strong> .</p> -->
+
+  <h3>Throughput scaling</h3>
+
+  <p>In general, prefill throughput is essentially flat with batch size as a single long prefill already saturates compute, while decode throughput scales close to linearly with batch size (number of concurrent prompts). As such, to increase the overall inference throughput, we just need to increase the batch size.</p>
+
+  <figure class="wide">
+    <img src="../assets/img/page11_img1.png" alt="Two bar charts: prefill throughput is flat across batch sizes 1, 2, 4, 8 around 4K-5K tokens/sec. Decode throughput rises linearly from ~10 to ~800 tokens/sec as batch size grows from 1 to 64.">
+    <figcaption>Illustration from https://arxiv.org/abs/2403.02310</figcaption>
+  </figure>
+
+<!-- <p>The plot confirms the intuition: decode throughput grows linearly with batch size; prefill is essentially flat because compute is already saturated at batch size 1.</p> -->
+
+  <p class="callout"><strong>The first principle for throughput optimisation: increase concurrent requests until compute or memory is saturated.</strong></p> 
+
+  <p>How to know when compute or memory is saturated? Continue with the example workload from Section 1, the roofline crossover sits at 156 FLOP/byte and decode arithmetic intensity is ~1.1 FLOP/byte per token. Therefore, the theoretical maximum batch size before compute saturates is therefore <code>156 / 1.1 ≈ 141</code> concurrent prompts. Memory will be saturated by the growing KV caches from more concurrent prompts. This begs the question of whether memory or compute is the bottleneck?</p>
+    <hr class="rule">
+
+    <h2>3. The memory wall: KV cache sizing</h2>
+ 
+  <p>In the previous section, we determined the compute ceiling of running Qwen3-32B on one A100 GPU sits at <code>~141</code> concurrent prompts. But in practice, you almost never get there — the GPU runs out of memory for the KV cache first.</p>
+ 
+  <h3>KV cache memory formula</h3>
+ 
+  <p>The cache stores one K vector and one V vector, each of dimension <code>n_kv_heads × d_head</code> for every token of the prompt (both input and output tokens).</p>
+ 
+<pre><code>KV_cache_bytes_per_token = 2 (K and V) × n_layers × n_kv_heads × d_head × dtype_bytes</code></pre>
+ 
+  <p>For Qwen3-32B (<code>n_layers = 64</code>, <code>n_kv_heads = 8</code>, <code>d_head = 128</code>, bf16):</p>
+ 
+<pre><code>KV_cache_bytes_per_token = 2 × 64 × 8 × 128 × 2 ≈ 256 KB / token</code></pre>
+ 
+  <p>A 4096-token context is therefore ~1 GB <em>of KV cache</em>. A batch of 141 such requests would be ~141 GB which is larger than a single A100's HBM. And this is <em>with</em> GQA shrinking the cache 8× compared to full MHA<span class="sidenote-number"></span><span class="sidenote">There has been mutliple optimisation techniques for KV caches such as DeepSeek's <strong>MLA</strong> — which compresses K and V into a small latent vector for KV cache storage and only expands them at attention time or <strong>TurboQuant</strong> which quantizes the KV caches.</span>.</p>
+ 
+  <h3>Memory budget on a single GPU
+
+  </h3>
+ 
+  <p>Sizing the KV cache pool comes down to subtracting everything else from total HBM<span class="sidenote-number"></span><span class="sidenote">Activation buffers store the intermediary outputs of each operation in a forward pass before it gets passed into the next operation. It is set as the peak activation which is often the output of the MLP layer. For Qwen3-32B, the peak activation would be of size 2x[B, N, d_ff] for the output of gate and up projections.</span>:</p>
+ 
+<div class="ascii-block">Total HBM (A100 80GB)              80 GB
+├─ Model weights (32B × bf16)      ~64 GB
+├─ Activation buffers              ~0.5–2 GB
+├─ Other overhead                  ~1 GB (CUDA graph, logits buffer, cuBLAS, etc)
+└─ Everything else                 → KV cache pool   (~13 GB)</div>
+  
+  <p>What's left over for the KV cache pool on an 80 GB A100 is roughly 13 GB — enough for about <strong>13 concurrent requests at 4K context</strong>. Comparing this to the compute-saturation ceiling (~141 requests) makes the asymmetry vivid: the memory wall arrives an order of magnitude before the compute wall.</p>
+ 
+  <h2>4. Profiling and tuning</h2>
+ 
+  <p>We have established the key conceptual foundations of LLM inference. This section discusses practical details when optimising throughput using vLLM.</p>
+    
+  <p>vLLM exposes <code>kv_cache_usage_pct</code> as a live metric. Because KV cache usage is roughly linear in concurrent request count (assuming similar context lengths), it's a clean knob: tune <code>max_num_seqs</code> (max number of concurrent prompts) to land at whatever steady-state utilisation you want. <strong>85–90%</strong> is a reasonable target — high enough to push throughput, with slack for transient spikes.</p>
+ 
+  <p>The following run sweeps concurrency on a real serving config. At concurrency 512 (brown line), KV cache averages ~30% — plenty of headroom. Doubling to 1028 (green) doubles cache usage to ~60% and decode throughput roughly doubles in turn — exactly the linear scaling section 2 predicted.</p>
+ 
+  <figure>
+    <img src="../assets/img/page12_img1.png" alt="vLLM kv_cache_usage chart over time: brown line at concurrency 512 plateaus near 30 percent; green line at concurrency 1028 plateaus near 60 percent.">
+    <figcaption>KV cache utilisation at concurrency 512 (brown) vs 1028 (green).</figcaption>
+  </figure>
+ 
+  <figure>
+    <img src="../assets/img/page13_img1.png" alt="vLLM decode throughput chart: green line at concurrency 1028 peaks above 2000 tokens/sec, roughly double the brown 512 line.">
+    <figcaption>Decode throughput at the same two configs. Green is ~2× brown, matching the cache-usage ratio.</figcaption>
+  </figure>
+ 
+  <p>Encouraged by the headroom, I pushed concurrency further to 1200. KV cache now saturates at 100% — and, against expectation, <strong>throughput collapses</strong>:</p>
+ 
+  <figure>
+    <img src="../assets/img/page13_img2.png" alt="vLLM kv_cache_usage chart at concurrency 1200: blue line saturates at 100 percent across most of the run; green 1028 line tops out near 60 percent for comparison.">
+    <figcaption>At concurrency 1200, cache usage pins at 100%.</figcaption>
+  </figure>
+ 
+  <figure>
+    <img src="../assets/img/page14_img1.png" alt="vLLM decode throughput chart at concurrency 1200: blue line is volatile and averages well below the green 1028 baseline, hovering around 300-500 tokens/sec.">
+    <figcaption>Throughput at concurrency 1200 collapses below 1028, despite higher KV usage.</figcaption>
+  </figure>
+ 
+  <h3>Preemption: what happens when the cache fills</h3>
+ 
+  <p>The throughput collapse is due to <strong>preemption</strong>. When a new request arrives and there isn't enough KV cache memory for it, vLLM has to evict one or more running requests to make space. There are two eviction modes:</p>
+ 
+  <ul>
+    <li><strong>Recompute:</strong> discard the preempted request's KV cache entirely. When it resumes, re-run prefill over the full context (original prompt plus generated tokens so far). Cheap in memory, expensive in compute.</li>
+    <li><strong>Swap:</strong> copy the preempted request's KV blocks out to CPU RAM and restore them later. Cheap in compute, expensive in PCIe bandwidth on swap-in/out.</li>
+  </ul>
+ 
+  <p>Either way the cost is real: a request preempted once roughly doubles its end-to-end latency. </p>
+ 
+  <p>As such, one should be careful when tuning concurrency with kv cache. Two metrics to watch:</p>
+ 
+  <ul>
+    <li><code>kv_cache_usage_pct</code> — tells you the headroom you have.</li>
+    <li><code>num_preemptions</code> — tells you when you've crossed the line.</li>
+  </ul>
+ 
+  <p class="callout"><strong>The second principle for throughput optimisation: push concurrency to fill the KV cache, but stop short of triggering preemption. The optimum sits just below 100% cache utilisation.</strong></p>
+ 
+  <hr class="rule">
+ 
+  <!-- <h2>Putting it together</h2>
+ 
+  <p>Two key principles:</p>
+ 
+  <ol>
+    <li><strong>Per-request, decode is bandwidth-bound.</strong> Loading 1 GB of weights to produce a single token gives ~1 FLOP/byte — two orders of magnitude below the A100's roofline crossover at 156 FLOP/byte. Batching decode requests together raises arithmetic intensity and is the single biggest throughput lever available.</li>
+    <li><strong>Batching is capped by KV cache memory.</strong> The compute ceiling allows ~141 concurrent requests; the memory ceiling cuts that to ~10–12 on a single A100 at 4K context. GQA, MLA, paged attention, and careful memory budgeting are what let you push the batch size up.</li>
+    <li><strong>Once compute-saturates, additional batching plateaus.</strong> That's the hardware limit. Beyond this point, optimisation moves to other axes: <em>model-level</em> (quantisation lowers bytes-per-weight, directly raising decode arithmetic intensity); or <em>system-level</em> (disaggregated prefill/decode, so each stage runs on hardware sized for its bottleneck).</li>
+  </ol>
+ 
+  <p>Speculative decoding, disaggregation, custom attention kernels — the deeper optimisations are all variations on the same theme: <strong>keep the tensor cores fed, by either moving fewer bytes per useful FLOP or doing more useful FLOPs per byte moved.</strong></p> -->
+ 
+  <h3>References</h3>
+ 
+  <ul>
+    <li><a href="https://developer.nvidia.com/blog/mastering-llm-techniques-inference-optimization/">Mastering LLM Techniques: Inference Optimization</a> — NVIDIA Developer Blog</li>
+    <li><a href="https://arxiv.org/abs/2403.02310">Sarathi-Serve: Taming Throughput-Latency Tradeoff in LLM Inference</a> — Agrawal et al., 2024</li>
+    <li><a href="https://docs.vllm.ai/">vLLM documentation</a></li>
+  </ul>
+ 
+  <!-- <hr class="rule"> -->
+ 
+  <!-- <h2>Appendix: vLLM memory-allocation quirks</h2>
+ 
+  <p>While building an auto-tuner that ramps concurrency exponentially until OOM (to search the best serving config without manual sweeps), I hit OOM well below what <code>gpu_memory_utilization</code> seemed to allow. Two effects combined to make the configured budget optimistic:</p>
+ 
+  <ul>
+    <li><strong>PyTorch's caching allocator holds onto blocks.</strong> Even after tensors are dropped, freed memory isn't eagerly returned to CUDA — it sits in the allocator's pool. Between iterations of the sweep, stale allocations from the previous run appear as <em>used</em> memory to the next. A <code>torch.cuda.empty_cache()</code> call (or fully tearing down the engine) between iterations forces a clean slate.</li>
+    <li><strong>Lazily-allocated per-forward-pass buffers.</strong> Some buffers — logits especially, which scale with <code>batch × vocab_size</code> — aren't sized at peak during vLLM's startup profiling. They balloon only when actual batches arrive, so the headroom advertised at startup overstates what's safe at peak load.</li>
+  </ul>
+ 
+  <p>The practical fix is one of two things: either run the startup profile at the worst-case batch size you'll actually serve, or tear down and rebuild the engine between concurrency levels in the auto-tuning sweep. The first is faster; the second is more accurate.</p>
+  <p>PyTorch's torch.cuda.memory_allocated() only tracks tensors that PyTorch itself allocated. Everything allocated by the driver, by third-party libraries (NCCL, cuDNN, FlashAttention's C++ internals), or by CUDA graph machinery outside of PyTorch's allocator is invisible to it. gpu_memory_utilization is essentially an admission that this dark matter exists and can't be precisely sized — so vLLM leaves headroom for it rather than trying to enumerate it.</p>
+
+  <p>The broader takeaway: <code>gpu_memory_utilization</code> is a target for the <em>KV cache pool</em> after vLLM subtracts what it pre-measured. Anything that grows lazily after that measurement — logits, dynamic activation buffers — effectively eats into the pool from outside the budget. If you're tuning right at the cliff edge, this matters.</p>
+ -->
+  <!-- <div class="article-footer">
+    <p>Written while iterating on inference cost models. Comments, corrections, and arguments welcome.</p>
+  </div> -->
+
+</article>
+</main>
+
+</body>
+</html>
