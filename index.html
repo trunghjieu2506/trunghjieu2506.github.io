@@ -767,7 +767,9 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
  
   <p>A 4096-token context is therefore ~1 GB <em>of KV cache</em>. A batch of 141 such requests would be ~141 GB which is larger than a single A100's HBM. And this is <em>with</em> GQA shrinking the cache 8× compared to full MHA<span class="sidenote-number"></span><span class="sidenote">There has been mutliple optimisation techniques for KV caches such as DeepSeek's <strong>MLA</strong> — which compresses K and V into a small latent vector for KV cache storage and only expands them at attention time or <strong>TurboQuant</strong> which quantizes the KV caches.</span>.</p>
  
-  <h3>Memory budget on a single GPU</h3>
+  <h3>Memory budget on a single GPU
+
+  </h3>
  
   <p>Sizing the KV cache pool comes down to subtracting everything else from total HBM<span class="sidenote-number"></span><span class="sidenote">Activation buffers store the intermediary outputs of each operation in a forward pass before it gets passed into the next operation. It is set as the peak activation which is often the output of the MLP layer. For Qwen3-32B, the peak activation would be of size 2x[B, N, d_ff] for the output of gate and up projections.</span>:</p>
  
@@ -779,15 +781,17 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
   
   <p>What's left over for the KV cache pool on an 80 GB A100 is roughly 13 GB — enough for about <strong>13 concurrent requests at 4K context</strong>. Comparing this to the compute-saturation ceiling (~141 requests) makes the asymmetry vivid: the memory wall arrives an order of magnitude before the compute wall.</p>
  
-  <h3>Profiling and tuning</h3>
+  <h2>4. Profiling and tuning</h2>
  
-  <p>vLLM exposes <code>kv_cache_usage_pct</code> as a live metric. Because KV cache usage is roughly linear in concurrent request count (assuming similar context lengths), it's a clean knob: tune <code>max_num_seqs</code> and <code>max_num_batched_tokens</code> to land at whatever steady-state utilisation you want. <strong>85–90%</strong> is a reasonable target — high enough to push throughput, with slack for transient spikes.</p>
+  <p>We have established the key conceptual foundations of LLM inference. This section discusses practical details when optimising throughput using vLLM.</p>
+    
+  <p>vLLM exposes <code>kv_cache_usage_pct</code> as a live metric. Because KV cache usage is roughly linear in concurrent request count (assuming similar context lengths), it's a clean knob: tune <code>max_num_seqs</code> (max number of concurrent prompts) to land at whatever steady-state utilisation you want. <strong>85–90%</strong> is a reasonable target — high enough to push throughput, with slack for transient spikes.</p>
  
   <p>The following run sweeps concurrency on a real serving config. At concurrency 512 (brown line), KV cache averages ~30% — plenty of headroom. Doubling to 1028 (green) doubles cache usage to ~60% and decode throughput roughly doubles in turn — exactly the linear scaling section 2 predicted.</p>
  
   <figure>
     <img src="assets/img/page12_img1.png" alt="vLLM kv_cache_usage chart over time: brown line at concurrency 512 plateaus near 30 percent; green line at concurrency 1028 plateaus near 60 percent.">
-    <figcaption>KV cache utilisation at concurrency 512 (brown) vs 1028 (green). Linear in concurrency.</figcaption>
+    <figcaption>KV cache utilisation at concurrency 512 (brown) vs 1028 (green).</figcaption>
   </figure>
  
   <figure>
@@ -795,37 +799,37 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
     <figcaption>Decode throughput at the same two configs. Green is ~2× brown, matching the cache-usage ratio.</figcaption>
   </figure>
  
-  <p>Encouraged by the headroom, I pushed concurrency further to 1200. KV cache now saturates at 100% — and, against expectation, throughput <em>collapses</em>:</p>
+  <p>Encouraged by the headroom, I pushed concurrency further to 1200. KV cache now saturates at 100% — and, against expectation, <strong>throughput collapses</strong>:</p>
  
   <figure>
     <img src="assets/img/page13_img2.png" alt="vLLM kv_cache_usage chart at concurrency 1200: blue line saturates at 100 percent across most of the run; green 1028 line tops out near 60 percent for comparison.">
-    <figcaption>At concurrency 1200, cache usage pins at 100% — the cliff edge.</figcaption>
+    <figcaption>At concurrency 1200, cache usage pins at 100%.</figcaption>
   </figure>
  
   <figure>
     <img src="assets/img/page14_img1.png" alt="vLLM decode throughput chart at concurrency 1200: blue line is volatile and averages well below the green 1028 baseline, hovering around 300-500 tokens/sec.">
-    <figcaption>Throughput at concurrency 1200 collapses below the 1028 run, despite higher offered load.</figcaption>
+    <figcaption>Throughput at concurrency 1200 collapses below 1028, despite higher KV usage.</figcaption>
   </figure>
  
   <h3>Preemption: what happens when the cache fills</h3>
  
-  <p>The collapse is not a contention or scheduling artefact — it's <strong>preemption</strong>. When a new request arrives and there isn't enough KV cache memory for it, vLLM has to evict one or more running requests to make space. There are two eviction modes:</p>
+  <p>The throughput collapse is due to <strong>preemption</strong>. When a new request arrives and there isn't enough KV cache memory for it, vLLM has to evict one or more running requests to make space. There are two eviction modes:</p>
  
   <ul>
     <li><strong>Recompute:</strong> discard the preempted request's KV cache entirely. When it resumes, re-run prefill over the full context (original prompt plus generated tokens so far). Cheap in memory, expensive in compute.</li>
     <li><strong>Swap:</strong> copy the preempted request's KV blocks out to CPU RAM and restore them later. Cheap in compute, expensive in PCIe bandwidth on swap-in/out.</li>
   </ul>
  
-  <p>Either way the cost is real: a request preempted once roughly doubles its end-to-end latency (in recompute mode, it literally runs prefill twice). And at the cliff edge, preemption isn't a rare event — it cascades. Every newly admitted request evicts an existing one, which gets re-admitted later, which evicts another, and so on. The system thrashes.</p>
+  <p>Either way the cost is real: a request preempted once roughly doubles its end-to-end latency. </p>
  
-  <p>This is why the right tuning target is the edge of the memory wall, not over it. Two metrics to watch:</p>
+  <p>As such, one should be careful when tuning concurrency with kv cache. Two metrics to watch:</p>
  
   <ul>
     <li><code>kv_cache_usage_pct</code> — tells you the headroom you have.</li>
     <li><code>num_preemptions</code> — tells you when you've crossed the line.</li>
   </ul>
  
-  <p class="callout"><strong>The second principle for throughput optimisation: push concurrency to fill the KV cache, but stop short of triggering preemption. The optimum sits just below 100% cache utilisation under your peak load.</strong></p>
+  <p class="callout"><strong>The second principle for throughput optimisation: push concurrency to fill the KV cache, but stop short of triggering preemption. The optimum sits just below 100% cache utilisation.</strong></p>
  
   <hr class="rule">
  
