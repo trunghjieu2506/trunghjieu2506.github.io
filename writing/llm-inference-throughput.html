@@ -484,7 +484,7 @@ dtype      = bf16 = 2 bytes/param</code></pre>
 
   <h4>Attention projections (Q, K, V, O)</h4>
 
-  <p>Each projection is a matmul of dimension <code>[N<span class="sidenote-number"></span><span class="sidenote">N is the number of tokens. A prompt of 4096 token is used as input for this example.</span>, d_model] @ [d_model, d_head]</code>, costing <code>2 × d_model × N × d_head = 2 × 5120 × N × 128</code> FLOPs <em>per head</em>. Total FLOPs scale with the number of heads — and under GQA, the number of Q heads and KV heads differs, so each has to be counted separately:</p>
+  <p>Each projection is a matmul of dimension <code>[N , d_model] @ [d_model, d_head]</code><span class="sidenote-number"></span><span class="sidenote">N is the number of tokens. A prompt of 4096 token is used as input for this example.</span>, costing <code>2 × d_model × N × d_head = 2 × 5120 × N × 128</code> FLOPs <em>per head</em>. Total FLOPs scale with the number of heads — and under GQA, the number of Q heads and KV heads differs, so each has to be counted separately:</p>
 
 <pre><code>Q : 2 × 5120 × N × 128 × 64   (64 query heads)
 K : 2 × 5120 × N × 128 ×  8   (8  kv heads)
@@ -771,7 +771,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
  
 <pre><code>KV_cache_bytes_per_token = 2 × 64 × 8 × 128 × 2 ≈ 256 KB / token</code></pre>
  
-  <p>A 4096-token context is therefore ~1 GB <em>of KV cache</em>. A batch of 141 such requests would be ~141 GB which is larger than a single A100's HBM. And this is <em>with</em> GQA shrinking the cache 8× compared to full MHA<span class="sidenote-number"></span><span class="sidenote">There has been mutliple optimisation techniques for KV caches such as DeepSeek's <strong>MLA</strong> — which compresses K and V into a small latent vector for KV cache storage and only expands them at attention time or <strong>TurboQuant</strong> which quantizes the KV caches.</span>.</p>
+  <p>A 4096-token context is therefore ~1 GB <em>of KV cache</em>. A batch of 141 such requests would be ~141 GB which is larger than a single A100's HBM. And this is <em>with</em> GQA shrinking the cache 8× compared to full MHA<span class="sidenote-number"></span><span class="sidenote">There has been mutliple optimisation techniques for KV caches such as DeepSeek's <strong>MLA</strong> — which compresses K and V into a small latent vector for KV cache storage and only expands them at attention time or <strong>FP8 KV cache quantisation</strong>: https://vllm.ai/blog/2026-05-11-turboquant.</span>.</p>
  
   <h3>Memory budget on a single GPU
 
