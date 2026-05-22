@@ -833,9 +833,9 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
  
   <hr class="rule">
  
-  <h2>Putting it together</h2>
+  <!-- <h2>Putting it together</h2>
  
-  <p>Three principles compound, in order:</p>
+  <p>Two key principles:</p>
  
   <ol>
     <li><strong>Per-request, decode is bandwidth-bound.</strong> Loading 1 GB of weights to produce a single token gives ~1 FLOP/byte — two orders of magnitude below the A100's roofline crossover at 156 FLOP/byte. Batching decode requests together raises arithmetic intensity and is the single biggest throughput lever available.</li>
@@ -843,20 +843,19 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
     <li><strong>Once compute-saturates, additional batching plateaus.</strong> That's the hardware limit. Beyond this point, optimisation moves to other axes: <em>model-level</em> (quantisation lowers bytes-per-weight, directly raising decode arithmetic intensity); or <em>system-level</em> (disaggregated prefill/decode, so each stage runs on hardware sized for its bottleneck).</li>
   </ol>
  
-  <p>Speculative decoding, disaggregation, custom attention kernels — the deeper optimisations are all variations on the same theme: <strong>keep the tensor cores fed, by either moving fewer bytes per useful FLOP or doing more useful FLOPs per byte moved.</strong></p>
+  <p>Speculative decoding, disaggregation, custom attention kernels — the deeper optimisations are all variations on the same theme: <strong>keep the tensor cores fed, by either moving fewer bytes per useful FLOP or doing more useful FLOPs per byte moved.</strong></p> -->
  
   <h3>References</h3>
  
   <ul>
     <li><a href="https://developer.nvidia.com/blog/mastering-llm-techniques-inference-optimization/">Mastering LLM Techniques: Inference Optimization</a> — NVIDIA Developer Blog</li>
     <li><a href="https://arxiv.org/abs/2403.02310">Sarathi-Serve: Taming Throughput-Latency Tradeoff in LLM Inference</a> — Agrawal et al., 2024</li>
-    <li><a href="https://huggingface.co/blog/not-lain/kv-caching">KV Caching primer</a> — Hugging Face</li>
     <li><a href="https://docs.vllm.ai/">vLLM documentation</a></li>
   </ul>
  
-  <hr class="rule">
+  <!-- <hr class="rule"> -->
  
-  <h2>Appendix: vLLM memory-allocation quirks</h2>
+  <!-- <h2>Appendix: vLLM memory-allocation quirks</h2>
  
   <p>While building an auto-tuner that ramps concurrency exponentially until OOM (to search the best serving config without manual sweeps), I hit OOM well below what <code>gpu_memory_utilization</code> seemed to allow. Two effects combined to make the configured budget optimistic:</p>
  
@@ -869,10 +868,10 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
   <p>PyTorch's torch.cuda.memory_allocated() only tracks tensors that PyTorch itself allocated. Everything allocated by the driver, by third-party libraries (NCCL, cuDNN, FlashAttention's C++ internals), or by CUDA graph machinery outside of PyTorch's allocator is invisible to it. gpu_memory_utilization is essentially an admission that this dark matter exists and can't be precisely sized — so vLLM leaves headroom for it rather than trying to enumerate it.</p>
 
   <p>The broader takeaway: <code>gpu_memory_utilization</code> is a target for the <em>KV cache pool</em> after vLLM subtracts what it pre-measured. Anything that grows lazily after that measurement — logits, dynamic activation buffers — effectively eats into the pool from outside the budget. If you're tuning right at the cliff edge, this matters.</p>
-
-  <div class="article-footer">
+ -->
+  <!-- <div class="article-footer">
     <p>Written while iterating on inference cost models. Comments, corrections, and arguments welcome.</p>
-  </div>
+  </div> -->
 
 </article>
 </main>
