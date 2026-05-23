@@ -502,9 +502,9 @@ O : 2 × 5120 × N × 128 × 64   (output projection)</code></pre>
 softmax @ V : [N, N] @ [N, d_head] → 2 × N² × d_head
 Total       : 4 × N² × d_head</code></pre>
 
-  <p>Across 64 query heads, total FLOPs = <code>4 × N² × 128 × 64</code><span class="sidenote-number"></span><span class="sidenote">Notice FLOPs of attention score grows quadratically with number of tokens in prefill.</span>. For N = 4096:</p>
+  <p>Across 64 query heads, total FLOPs = <code>4 × N² × 128 × 64</code><span class="sidenote-number"></span><span class="sidenote">Notice FLOPs of attention score grows quadratically with number of tokens in prefill.</span>. For N = 4096: 4 × 4096² × 128 × 64 ≈ <strong>0.55 T FLOPs</strong>.</p>
 
-<pre><code>4 × 4096² × 128 × 64 ≈ 0.55 T FLOPs</code></pre>
+<!-- <pre><code>4 × 4096² × 128 × 64 ≈ 0.55 T FLOPs</code></pre> -->
 
   <!-- <p>A causal mask roughly halves this in principle, but most accounting keeps the full N² since the saving depends on how the kernel is tiled.<span class="sidenote-number"></span><span class="sidenote">FlashAttention's tiling makes the mask savings real: it skips entire upper-triangular tiles. Naive softmax-attention pays for the full N² anyway because masked entries still get loaded.</span></p> -->
 
@@ -514,9 +514,9 @@ Total       : 4 × N² × d_head</code></pre>
 softmax @ V : [1, N_cache] @ [N_cache, d_head] → 2 × N_cache × d_head
 Total       : 4 × N_cache × d_head</code></pre>
 
-  <p>Across 64 query heads, total FLOPs = <code>4 × N_cache × 128 × 64</code>. For N_cache = 4096:</p>
+  <p>Across 64 query heads, total FLOPs = <code>4 × N_cache × 128 × 64</code>. For N_cache = 4096: 4 × 4096 × 128 × 64 ≈ <strong>0.13 B FLOPs</strong>.</p>
 
-<pre><code>4 × 4096 × 128 × 64 ≈ 0.13 B FLOPs</code></pre>
+<!-- <pre><code>4 × 4096 × 128 × 64 ≈ 0.13 B FLOPs</code></pre> -->
 
   <h3>MLP FLOPs</h3>
 
@@ -530,7 +530,7 @@ Total       : 4 × N_cache × d_head</code></pre>
 <pre><code>Gate: [N, d_model] @ [d_model, d_ff]    → 2 × N × d_model × d_ff
 Up  : [N, d_model] @ [d_model, d_ff]    → 2 × N × d_model × d_ff
 Down: [N, d_ff   ] @ [d_ff,    d_model] → 2 × N × d_ff    × d_model
-Total                                    : 6 × N × d_model × d_ff</code></pre>
+Total                                   : 6 × N × d_model × d_ff</code></pre>
 
   <p>Prefill (N = 4096) ≈ <strong>3.2 T FLOPs</strong>; Decode (N = 1) ≈ <strong>0.79 B FLOPs</strong>. The SiLU (Swish) and the elementwise <code>gate × up</code> product are <code>O(N × d_ff)</code> — negligible compared to the matmuls, so they're left out.</p>
 
@@ -556,7 +556,7 @@ Total                               ~4.5  T  FLOPs
 HBM transfer                        ~1 GB    (loaded once, reused across all 4096 tokens)
 Arithmetic intensity                ~4.5 TFLOP / 1 GB ≈ <strong>~4500 FLOPs/byte</strong></div>
 
-  <p class="callout">A note on the memory-transfer numbers above: they don't include KV cache or activation transfers, since for this example they're negligible against the weights. (The next section justifies this.)</p>
+  <p class="callout">In this simplified calculation, memory transfer does not take into account KV cache transfer in decode which would further decrease its arithmetic intensity. Section 3 will discuss the size of KV cache in more details.</p>
 
   <p>An A100 has ~2 TB/s HBM bandwidth and ~312 TFLOP/s for bf16 compute. The <strong>roofline crossover</strong> — the point at which a kernel flips from memory-bound to compute-bound — sits at <code>312 / 2 = 156 FLOPs/byte</code>.</p>
 
@@ -752,7 +752,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
 
 <!-- <p>The plot confirms the intuition: decode throughput grows linearly with batch size; prefill is essentially flat because compute is already saturated at batch size 1.</p> -->
 
-  <p class="callout"><strong>The first principle for throughput optimisation: increase concurrent requests until compute or memory is saturated.</strong></p> 
+  <p class="callout" style="font-size: 20px;"><strong>First principle of throughput optimisation: increase concurrent requests until compute or memory is saturated.</strong></p> 
 
   <p>How to know when compute or memory is saturated? Continue with the example workload from Section 1, the roofline crossover sits at 156 FLOP/byte and decode arithmetic intensity is ~1.1 FLOP/byte per token. Therefore, the theoretical maximum batch size before compute saturates is therefore <code>156 / 1.1 ≈ 141</code> concurrent prompts. Memory will be saturated by the growing KV caches from more concurrent prompts. This begs the question of whether memory or compute is the bottleneck?</p>
     <hr class="rule">
@@ -835,7 +835,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
     <li><code>num_preemptions</code> — tells you when you've crossed the line.</li>
   </ul>
  
-  <p class="callout"><strong>The second principle for throughput optimisation: push concurrency to fill the KV cache, but stop short of triggering preemption. The optimum sits just below 100% cache utilisation.</strong></p>
+  <p class="callout" style="font-size: 20px;"><strong>Second principle of throughput optimisation: push concurrency to fill up the KV cache, but stop before triggering preemption. The optimum sits just below 100% cache utilisation.</strong></p>
  
   <hr class="rule">
  
