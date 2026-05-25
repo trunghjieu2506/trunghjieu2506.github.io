@@ -389,7 +389,7 @@
     <!-- <span>May 2026</span> -->
   </div>
 
-  <p>This article explores why the most intuitive lever for throughput, <strong>batching concurrent prompts</strong>, is so effective at improving inference throughput. By dissecting the underlying computations of a transformer during inference on a single GPU setup, this article aims to establish a rigorous mental model of the LLM inference workload. This serves as a foundational step toward building a full inference cost model, allowing us to predict token throughput for a given model and hardware before deployment, which we will conclude at the end of this blog series.</p>
+  <p>This article explores why the most intuitive lever for throughput, <strong>batching concurrent requests</strong>, is so effective at improving inference throughput. By dissecting the underlying computations of a transformer during inference on a single GPU setup, this article aims to establish a rigorous mental model of the LLM inference workload. This serves as a foundational step toward building a full inference cost model, allowing us to predict token throughput for a given model and hardware before deployment, which we will conclude at the end of this blog series.</p>
 
   <!-- <p>The plan is concrete: pick a single model (Qwen3-32B), do the napkin math by hand for one transformer layer, then use the result to derive batching limits a working scheduler has to respect.</p> -->
 
@@ -430,7 +430,7 @@
     <!-- <figcaption>A scheduler with token budget 10 and three concurrent requests. The token budget empties as requests transition from prefill to decode — utilisation falls with it.</figcaption> -->
   </figure>
 
-  <p>Combined with the KV cache, this means <strong>decode only has to push <em>one</em> token</strong> through the whole forward pass, while prefill processes all input tokens at once. That alone is the first heuristic for why prefill is compute-bound while decode is memory-bound.</p>
+  <p>Together with KV cache mechanism, this means <strong>decode only has to process one token in its forward pass</strong>, while prefill processes all input tokens at once. That alone is the first heuristic for why prefill is compute-bound while decode is memory-bound.</p>
   <p>Let's actually compare the number of arithmetic operations in prefill vs decode to ground this heuristic.</p>
 
   <h3>Prefill is compute-bound, decode is memory-bound</h3>
@@ -558,7 +558,7 @@ Arithmetic intensity                ~4.5 TFLOP / 1 GB ≈ <strong>~4500 FLOPs/by
 
   <p class="callout">In this simplified calculation, memory transfer does not take into account KV cache transfer in decode which would further decrease its arithmetic intensity. Section 3 will discuss the size of KV cache in more details.</p>
 
-  <p>An A100 has ~2 TB/s HBM bandwidth and ~312 TFLOP/s for bf16 compute. The <strong>roofline crossover</strong> — the point at which a kernel flips from memory-bound to compute-bound — sits at <code>312 / 2 = 156 FLOPs/byte</code>.</p>
+  <p>An A100 GPU has ~2 TB/s HBM bandwidth and ~312 TFLOP/s for bf16 compute. The <strong>roofline crossover</strong> — the point at which a kernel flips from memory-bound to compute-bound — sits at <code>312 / 2 = 156 FLOPs/byte</code>.</p>
 
   <p>Decode has arithmetic intensity of ~1, making it massively memory-bound, compute cores almost idle, the whole step bottlenecked on streaming 1 GB of weights from HBM. On the other hand, prefill lands at ~4500, well above 156, making it solidly compute-bound.</p>
   <figure class="wide" style="margin-top: 32px; margin-bottom: 8px;">
@@ -743,7 +743,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
 
   <h3>Throughput scaling</h3>
 
-  <p>In general, prefill throughput is essentially flat with batch size as a single long prefill already saturates compute, while decode throughput scales close to linearly with batch size (number of concurrent prompts). As such, to increase the overall inference throughput, we just need to increase the batch size.</p>
+  <p>In general, prefill throughput is essentially flat with concurrency / batch size <span class="sidenote-number"></span><span class="sidenote">Batch Size / Concurrency / Concurrent Requests all refer to the number of concurrent prompts.</span> as a single long prefill already saturates compute, while decode throughput scales close to linearly with concurrency. As such, to increase the overall inference throughput, we just need to increase concurrency.</p>
 
   <figure class="wide">
     <img src="../assets/img/page11_img1.png" alt="Two bar charts: prefill throughput is flat across batch sizes 1, 2, 4, 8 around 4K-5K tokens/sec. Decode throughput rises linearly from ~10 to ~800 tokens/sec as batch size grows from 1 to 64.">
@@ -752,14 +752,15 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
 
 <!-- <p>The plot confirms the intuition: decode throughput grows linearly with batch size; prefill is essentially flat because compute is already saturated at batch size 1.</p> -->
 
-  <p class="callout" style="font-size: 20px;"><strong>First principle of throughput optimisation: increase concurrent requests until compute or memory is saturated.</strong></p> 
+  <p class="callout" style="font-size: 20px;"><strong>First principle of throughput optimisation: increase concurrency until compute or memory is saturated.</strong></p> 
 
-  <p>How to know when compute or memory is saturated? Continue with the example workload from Section 1, the roofline crossover sits at 156 FLOP/byte and decode arithmetic intensity is ~1.1 FLOP/byte per token. Therefore, the theoretical maximum batch size before compute saturates is therefore <code>156 / 1.1 ≈ 141</code> concurrent prompts. Memory will be saturated by the growing KV caches from more concurrent prompts. This begs the question of whether memory or compute is the bottleneck?</p>
+  <p>How to know when compute or memory is saturated? </p>
+    <p>Continue with the example workload from Section 1, the roofline crossover sits at 156 FLOP/byte and decode arithmetic intensity is ~1.1 FLOP/byte per token. Therefore, the theoretical maximum batch size before compute saturates is therefore <code>156 / 1.1 ≈ 141</code> concurrent requests. Memory will be saturated by the growing KV caches from more concurrent requests. This begs the question of whether memory or compute is the bottleneck?</p>
     <hr class="rule">
 
     <h2>3. The memory wall: KV cache sizing</h2>
  
-  <p>In the previous section, we determined the compute ceiling of running Qwen3-32B on one A100 GPU sits at <code>~141</code> concurrent prompts. But in practice, you almost never get there — the GPU runs out of memory for the KV cache first.</p>
+  <p>In the previous section, we determined the compute ceiling of running Qwen3-32B on one A100 GPU sits at <code>~141</code> concurrent requests. But in practice, you almost never get there as the GPU runs out of memory for the KV cache first.</p>
  
   <h3>KV cache memory formula</h3>
  
@@ -783,7 +784,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
 ├─ Model weights (32B × bf16)      ~64 GB
 ├─ Activation buffers              ~0.5–2 GB
 ├─ Other overhead                  ~1 GB (CUDA graph, logits buffer, cuBLAS, etc)
-└─ Everything else                 → KV cache pool   (~13 GB)</div>
+└─ Remaining                 → KV cache pool   (~13 GB)</div>
   
   <p>What's left over for the KV cache pool on an 80 GB A100 is roughly 13 GB — enough for about <strong>13 concurrent requests at 4K context</strong>. Comparing this to the compute-saturation ceiling (~141 requests) makes the asymmetry vivid: the memory wall arrives an order of magnitude before the compute wall.</p>
  
@@ -791,9 +792,9 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
  
   <p>We have established the key conceptual foundations of LLM inference. This section discusses practical details when optimising throughput using vLLM.</p>
     
-  <p>vLLM exposes <code>kv_cache_usage_pct</code> as a live metric. Because KV cache usage is roughly linear in concurrent request count (assuming similar context lengths), it's a clean knob: tune <code>max_num_seqs</code> (max number of concurrent prompts) to land at whatever steady-state utilisation you want. <strong>85–90%</strong> is a reasonable target — high enough to push throughput, with slack for transient spikes.</p>
+  <p>vLLM exposes <code>kv_cache_usage_pct</code> as a live metric. Because KV cache usage is roughly linear in concurrent request count (assuming similar context lengths), it's a clean knob: tune <code>max_num_seqs</code> (max number of concurrent requests) to land at whatever steady-state utilisation you want. <strong>85–90%</strong> is a reasonable target — high enough to push throughput, with slack for transient spikes.</p>
  
-  <p>The following run sweeps concurrency on a real serving config. At concurrency 512 (brown line), KV cache averages ~30% — plenty of headroom. Doubling to 1028 (green) doubles cache usage to ~60% and decode throughput roughly doubles in turn — exactly the linear scaling section 2 predicted.</p>
+  <p>The following run sweeps concurrency on a real serving config. At concurrency 512 (brown line), KV cache averages ~30% — plenty of headroom. Doubling to 1028 (green) doubles cache usage to ~60% and decode throughput roughly doubles in turn, exactly the linear scaling discussed in Section 2.</p>
  
   <figure>
     <img src="../assets/img/page12_img1.png" alt="vLLM kv_cache_usage chart over time: brown line at concurrency 512 plateaus near 30 percent; green line at concurrency 1028 plateaus near 60 percent.">
@@ -805,7 +806,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
     <figcaption>Decode throughput at the same two configs. Green is ~2× brown, matching the cache-usage ratio.</figcaption>
   </figure>
  
-  <p>Encouraged by the headroom, I pushed concurrency further to 1200. KV cache now saturates at 100% — and, against expectation, <strong>throughput collapses</strong>:</p>
+  <p>Encouraged by the headroom, I pushed concurrency further to 1200 (blue line). KV cache now saturates at 100%, and against expectation, <strong>throughput collapses</strong>:</p>
  
   <figure>
     <img src="../assets/img/page13_img2.png" alt="vLLM kv_cache_usage chart at concurrency 1200: blue line saturates at 100 percent across most of the run; green 1028 line tops out near 60 percent for comparison.">
