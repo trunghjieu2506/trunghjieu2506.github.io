@@ -696,7 +696,7 @@ Arithmetic intensity                ~4.5 TFLOP / 1 GB ≈ <strong>~4500 FLOPs/by
  
     </svg>
   </figure>
-  <p>So how can we increase the arithmetic intensity of decode to better utilise GPU compute? The next section will explain the solution.</p>
+  <p>So how can we increase the arithmetic intensity of decode to better utilise GPU compute?</p>
 
   <h3>The MLP dominates either way</h3>
   <p>As a final note, whether the bottleneck is memory (decode) or compute (prefill), the dominant cost on that axis is the MLP. Attention stays comparatively cheap until the context grows long — the quadratic N² attention term in prefill only overtakes the linear projection term around N ≈ 6K for these dimensions, well past the 4K we're using here.</p>
@@ -730,7 +730,7 @@ GPU utilisation        &lt; 1 %                   ~saturated</div> -->
 
   <h2>2. Batching behaviour of the inference system</h2>
 
-  <p>We have established that decode stage of inference drastically underutilised GPU compute. Naturally, the foremost solution is to add more concurrent decode tokens, which comes from adding more concurrent input prompts. How does running multiple concurrent input prompts actually work?</p>
+  <p>We have established that decode stage of inference drastically underutilised GPU compute. To increase decode's arithmetic intensity, we need to give it more work to do or reduce the amount of memory transfer. To increase the amount of work without increasing memory transfer, we can batch multiple decode tokens together. This effectively means running multiple prompts concurrently.</p>
 
   <p>Suppose the GPU has capacity to process at most 10 tokens in parallel at one time. In step 0 of the figure below, three prompts are prefilled and the token budget is fully occupied (GPU utilisation at 100%). By step 3, all three have transitioned to decode and the GPU utilisation falls to 30%. Imagine starting with 10 concurrent prompts, GPU utilisation will always be 100% and throughput (tokens per second) remains high<span class="sidenote-number"></span><span class="sidenote">Average Time to First Token might take longer as there are more prefills.</span>.</p>
 
